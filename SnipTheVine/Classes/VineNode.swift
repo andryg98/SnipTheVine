@@ -29,20 +29,94 @@
 import UIKit
 import SpriteKit
 
+// VineNode acts as a container for a collection of nodes that represents the vine segments
+
 class VineNode: SKNode {
+  private let length: Int
+  private let anchorPoint: CGPoint
+  private var vineSegments: [SKNode] = []
+  
   init(length: Int, anchorPoint: CGPoint, name: String) {
+    self.length = length
+    self.anchorPoint = anchorPoint
+    
     super.init()
+    
+    self.name = name
   }
   
+  /*
+   Because SKNode implements NSCoding, it inherits the required initializer init(coder:).
+   That means our non-optional properties has to be initialized also here.
+   */
   required init?(coder aDecoder: NSCoder) {
+    length = aDecoder.decodeInteger(forKey: "length")
+    anchorPoint = aDecoder.decodeCGPoint(forKey: "anchorPoint")
+    
     super.init(coder: aDecoder)
   }
   
   func addToScene(_ scene: SKScene) {
+    // Add vine to the scene
+    zPosition = Layer.vine
+    scene.addChild(self)
     
+    // Create vine holder - like a nail for the vine to hang from
+    let vineHolder = SKSpriteNode(imageNamed: ImageName.vineHolder)
+    vineHolder.position = anchorPoint
+    vineHolder.zPosition = 1
+    
+    addChild(vineHolder)
+    
+    vineHolder.physicsBody = SKPhysicsBody(circleOfRadius: vineHolder.size.width / 2)
+    vineHolder.physicsBody?.isDynamic = false
+    vineHolder.physicsBody?.categoryBitMask = PhysicsCategory.vineHolder
+    vineHolder.physicsBody?.collisionBitMask = 0
+    
+    // Add each of the vine parts - each segment is a sprite with its own physics body
+    for i in 0..<length {
+      let vineSegment = SKSpriteNode(imageNamed: ImageName.vineTexture)
+      let offset = vineSegment.size.height * CGFloat(i + 1)
+      vineSegment.position = CGPoint(x: anchorPoint.x, y: anchorPoint.y - offset)
+      vineSegment.name = name
+      
+      vineSegments.append(vineSegment)
+      addChild(vineSegment)
+      
+      vineSegment.physicsBody = SKPhysicsBody(rectangleOf: vineSegment.size)
+      vineSegment.physicsBody?.categoryBitMask = PhysicsCategory.vine
+      vineSegment.physicsBody?.collisionBitMask = PhysicsCategory.vineHolder
+    }
+    
+    // Set up joint for the vine holder
+    let joint = SKPhysicsJointPin.joint(
+      withBodyA: vineHolder.physicsBody!,
+      bodyB: vineSegments[0].physicsBody!,
+      anchor: CGPoint(x: vineHolder.frame.midX, y: vineHolder.frame.midY))
+    
+    scene.physicsWorld.add(joint)
+    
+    // Set up joint between vine parts
+    for i in 1..<length {
+      let nodeA = vineSegments[i - 1]
+      let nodeB = vineSegments[i]
+      let joint = SKPhysicsJointPin.joint(
+        withBodyA: nodeA.physicsBody!,
+        bodyB: nodeB.physicsBody!,
+        anchor: CGPoint(x: nodeA.frame.midX, y: nodeA.frame.midY))
+      
+      scene.physicsWorld.add(joint)
+    }
   }
   
   func attachToPrize(_ prize: SKSpriteNode) {
+    // Align last segment of vine with prize
+    let lastNode = vineSegments.last!
+    lastNode.position = CGPoint(x: prize.position.x, y: prize.position.y + prize.size.height * 0.1)
     
+    // Set up connecting joint
+    let joint = SKPhysicsJointPin.joint(withBodyA: lastNode.physicsBody!, bodyB: prize.physicsBody!, anchor: lastNode.position)
+    
+    prize.scene?.physicsWorld.add(joint)
   }
 }
