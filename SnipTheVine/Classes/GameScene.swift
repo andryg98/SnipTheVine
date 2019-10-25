@@ -30,9 +30,18 @@ import SpriteKit
 import AVFoundation
 
 class GameScene: SKScene {
+  private var isLevelOver = false
+  private var didCutVine = false
+  
+  private var sliceSoundAction: SKAction!
+  private var splashSoundAction: SKAction!
+  private var nomNomSoundAction: SKAction!
+  
   private var particles: SKEmitterNode?
   private var crocodile: SKSpriteNode!
   private var prize: SKSpriteNode!
+  
+  private static var backgroundMusicPlayer: AVAudioPlayer!
   
   override func didMove(to view: SKView) {
     setUpPhysics()
@@ -175,7 +184,7 @@ class GameScene: SKScene {
   //MARK: - Touch handling
 
   override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
-
+    didCutVine = false
   }
   
   /*
@@ -221,12 +230,19 @@ class GameScene: SKScene {
    It enumerates through all nodes in the scene whose name matches the name of the node that you swiped. The only ones that matches the name are deleted, using a fadeOut animation.
    */
   private func checkIfVineCut(withBody body: SKPhysicsBody) {
+    if didCutVine && !GameConfiguration.canCutMultipleVinesAtOnce {
+      return
+    }
+    
+    
     let node = body.node!
     
     // If it has a name, it must be a vine node
     if let name = node.name {
       // Snip the vine - remove from scene
       node.removeFromParent()
+      
+      didCutVine = true
       
       // Fase out all nodes matching name
       enumerateChildNodes(withName: name) { (node, _) in
@@ -255,29 +271,56 @@ class GameScene: SKScene {
   //MARK: - Audio
   
   private func setUpAudio() {
+    // If music player is not already set
+    if GameScene.backgroundMusicPlayer == nil {
+      let backgroundMusicURL = Bundle.main.url(forResource: SoundFile.backgroundMusic, withExtension: nil)
+      
+      do {
+        let theme = try AVAudioPlayer(contentsOf: backgroundMusicURL!)
+        GameScene.backgroundMusicPlayer = theme
+      } catch {
+        // File could not be loaded
+      }
+      
+      GameScene.backgroundMusicPlayer.numberOfLoops = -1
+    }
     
+    if !GameScene.backgroundMusicPlayer.isPlaying {
+      GameScene.backgroundMusicPlayer.play()
+    }
+    
+    sliceSoundAction = .playSoundFileNamed(SoundFile.slice, waitForCompletion: false)
+    splashSoundAction = .playSoundFileNamed(SoundFile.splash, waitForCompletion: false)
+    nomNomSoundAction = .playSoundFileNamed(SoundFile.nomNom, waitForCompletion: false)
   }
 }
 
 extension GameScene: SKPhysicsContactDelegate {
   override func update(_ currentTime: TimeInterval) {
+    if isLevelOver { return }
     /*
      Instead of creating a node for the water and detect collision, use the position and check if the position is less or equal 0
      */
     if prize.position.y <= 0 {
+      run(splashSoundAction)
+      isLevelOver = true
       switchToNewGame(withTransition: .fade(withDuration: 1.0))
     }
+    
   }
   
   /*
    Checks if the two intersecting bodies belong to the crocodile and the prize.
    */
   func didBegin(_ contact: SKPhysicsContact) {
+    if isLevelOver { return }
+    
     if (contact.bodyA.node == crocodile && contact.bodyB.node == prize)
       || (contact.bodyA.node == prize && contact.bodyB.node == crocodile) {
       
       // Run crocodile animation
       runNomNomAnimation(withDelay: 0.15)
+      run(nomNomSoundAction)
       
       // Shrink the pineapple away
       let shrink = SKAction.scale(to: 0, duration: 0.88)
@@ -286,6 +329,7 @@ extension GameScene: SKPhysicsContactDelegate {
       prize.run(sequence)
       
       // Transition to next level
+      isLevelOver = true
       switchToNewGame(withTransition: .doorway(withDuration: 1.0))
     }
   }
